@@ -1,0 +1,24 @@
+# data (local market & account databases)
+/data/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# node
+node_modules/
+dist/
+
+# rust
+target/
+
+# misc
+.DS_Store
+*.log
+
+# claude local settings
+.claude/settings.local.json
