@@ -50,11 +50,20 @@ def list_stocks() -> pd.DataFrame:
 
 
 def csi300_symbols() -> pd.DataFrame:
-    """沪深300成分 -> [symbol, name]"""
+    """沪深300成分 -> [symbol, name]
+
+    主源为中证指数官网（当前成分、名称最新）；新浪源仅兜底——它返回的
+    是含重复的纳入历史列表（如 2005 年的"深发展A"），名称与成分均可能过时。
+    """
     import akshare as ak
 
-    df = _retry(lambda: ak.index_stock_cons(symbol="000300"))
-    return df.rename(columns={"品种代码": "symbol", "品种名称": "name"})[["symbol", "name"]]
+    try:
+        df = _retry(lambda: ak.index_stock_cons_csindex(symbol="000300"), attempts=2)
+        df = df.rename(columns={"成分券代码": "symbol", "成分券名称": "name"})
+    except RuntimeError:
+        df = _retry(lambda: ak.index_stock_cons(symbol="000300"))
+        df = df.rename(columns={"品种代码": "symbol", "品种名称": "name"})
+    return df[["symbol", "name"]].drop_duplicates("symbol").reset_index(drop=True)
 
 
 def _tx_symbol(symbol: str) -> str:

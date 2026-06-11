@@ -1,51 +1,81 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
+import { waitReady } from "./api";
+import Picks from "./pages/Picks";
+import Kline from "./pages/Kline";
+import Backtest from "./pages/Backtest";
+import Data from "./pages/Data";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+type Page = "picks" | "kline" | "backtest" | "data";
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+const NAV: { key: Page; label: string }[] = [
+  { key: "picks", label: "选股" },
+  { key: "kline", label: "行情" },
+  { key: "backtest", label: "回测" },
+  { key: "data", label: "数据" },
+];
+
+export default function App() {
+  const [ready, setReady] = useState(false);
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [page, setPage] = useState<Page>("picks");
+  const [klineSymbol, setKlineSymbol] = useState("");
+
+  useEffect(() => {
+    waitReady()
+      .then(() => setReady(true))
+      .catch((e) => setBootError(String(e instanceof Error ? e.message : e)));
+  }, []);
+
+  if (bootError) {
+    return (
+      <main className="boot">
+        <h1>见微 Jianwei</h1>
+        <p className="error">引擎连接失败：{bootError}</p>
+      </main>
+    );
+  }
+  if (!ready) {
+    return (
+      <main className="boot">
+        <h1>见微 Jianwei</h1>
+        <p className="muted">正在启动引擎…</p>
+      </main>
+    );
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <div className="layout">
+      <aside className="sidebar">
+        <h1 className="brand">
+          见微 <span className="muted">Jianwei</span>
+        </h1>
+        <nav>
+          {NAV.map((n) => (
+            <button
+              key={n.key}
+              className={page === n.key ? "nav-item active" : "nav-item"}
+              onClick={() => setPage(n.key)}
+            >
+              {n.label}
+            </button>
+          ))}
+        </nav>
+        <footer className="muted small">仅供研究 · 不构成投资建议</footer>
+      </aside>
+      <main className="content">
+        {page === "picks" && (
+          <Picks
+            onOpenKline={(s) => {
+              setKlineSymbol(s);
+              setPage("kline");
+            }}
+          />
+        )}
+        {page === "kline" && <Kline symbol={klineSymbol} onSymbolChange={setKlineSymbol} />}
+        {page === "backtest" && <Backtest />}
+        {page === "data" && <Data />}
+      </main>
+    </div>
   );
 }
-
-export default App;

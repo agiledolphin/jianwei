@@ -75,18 +75,20 @@ uv run pytest          # 16 项单测，覆盖全部 A 股交易约束
 uv run ruff check jianwei tests
 ```
 
-### 桌面端（开发中，阶段二）
+### 桌面端
 
 ```bash
 cd apps/desktop
 npm install
-npm run tauri dev
+npm run tauri dev    # 自动拉起 Python 引擎 sidecar（随机端口 + token）
 ```
+
+应用内含四个页面：**选股**（Top N 因子打分，可跳转 K 线）、**行情**（K 线 + MA + 成交量）、**回测**（净值曲线对比沪深300 + 指标卡片）、**数据**（同步触发与质量报告）。
 
 ## 开发状态
 
 - [x] 阶段一 · 引擎骨架：数据同步、多因子选股、约束回测、CLI（已完成）
-- [ ] 阶段二 · 桌面应用：sidecar 托管、选股 / 回测页面
+- [x] 阶段二 · 桌面应用：sidecar 托管、HTTP API、选股 / 行情 / 回测 / 数据页面（已完成）
 - [ ] 阶段三 · 模拟盘与进化：模拟撮合、每日调度、Optuna 寻优
 - [ ] 阶段四 · ML 与分发：Qlib 滚动训练、打包签名
 

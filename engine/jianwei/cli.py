@@ -26,8 +26,16 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("quality", help="数据质量报告")
 
+    sv = sub.add_parser("serve", help="启动本地 HTTP 服务（供桌面端调用）")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument("--token", default=None, help="Bearer 鉴权 token（缺省不鉴权）")
+
     args = p.parse_args(argv)
-    return {"sync": _sync, "select": _select, "backtest": _backtest, "quality": _quality}[args.cmd](args)
+    return {
+        "sync": _sync, "select": _select, "backtest": _backtest,
+        "quality": _quality, "serve": _serve,
+    }[args.cmd](args)
 
 
 def _sync(args) -> int:
@@ -94,6 +102,28 @@ def _backtest(args) -> int:
     finally:
         reg.close()
     print(f"\n已记录：strategy_id={sid} run_id={run_id}")
+    return 0
+
+
+def _serve(args) -> int:
+    import os
+    import threading
+    import time
+
+    import uvicorn
+
+    if args.token:
+        os.environ["JIANWEI_TOKEN"] = args.token
+
+    def watch_parent(ppid: int = os.getppid()) -> None:
+        # 壳经 uv 间接拉起本进程，壳退出时只能杀到 uv；
+        # 父进程消失（被 init 收养）即自退，避免引擎成为孤儿进程。
+        while os.getppid() == ppid:
+            time.sleep(2)
+        os._exit(0)
+
+    threading.Thread(target=watch_parent, daemon=True).start()
+    uvicorn.run("jianwei.api.app:app", host=args.host, port=args.port, log_level="warning")
     return 0
 
 

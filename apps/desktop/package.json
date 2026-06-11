@@ -12,6 +12,8 @@
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-opener": "^2",
+    "echarts": "^6.1.0",
+    "klinecharts": "^9.8.12",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
