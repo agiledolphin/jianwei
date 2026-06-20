@@ -48,13 +48,23 @@ app.add_middleware(  # 仅本机回环可达，来源校验交给 token
 )
 
 
-def _open_store() -> MarketStore:
+def _open_store(read_only: bool = False) -> MarketStore:
     import duckdb
 
+    from jianwei.config import market_db_path
+
     try:
-        return MarketStore()
-    except duckdb.IOException as e:  # 另一进程（如 CLI sync）持有写锁
-        raise HTTPException(status_code=503, detail=f"行情库被其他进程占用，请稍后重试：{e}") from e
+        # DB 文件不存在时 read_only 会失败，先用 read-write 建空库
+        if read_only and not market_db_path().exists():
+            return MarketStore(read_only=False)
+        return MarketStore(read_only=read_only)
+    except duckdb.IOException as e:  # 另一进程持有写锁时降级为只读
+        if not read_only:
+            raise HTTPException(status_code=503, detail=f"行情库被其他进程占用，请稍后重试：{e}") from e
+        try:
+            return MarketStore(read_only=True)
+        except duckdb.IOException:
+            raise HTTPException(status_code=503, detail=f"行情库被其他进程占用，请稍后重试：{e}") from e
 
 
 def _clean(obj):
@@ -79,7 +89,7 @@ def _records(df: pd.DataFrame) -> list[dict]:
 
 
 def _load_panel(start=None, end=None):
-    store = _open_store()
+    store = _open_store(read_only=True)
     try:
         daily = store.daily_panel(start=start, end=end)
         if daily.empty:
@@ -103,7 +113,7 @@ def health() -> dict:
 
 @app.get("/stocks")
 def stocks() -> list[dict]:
-    store = _open_store()
+    store = _open_store(read_only=True)
     try:
         return _records(store.stocks())
     finally:
@@ -112,7 +122,7 @@ def stocks() -> list[dict]:
 
 @app.get("/kline/{symbol}")
 def kline(symbol: str, start: str | None = None, end: str | None = None) -> dict:
-    store = _open_store()
+    store = _open_store(read_only=True)
     try:
         df = store.daily_panel(symbols=[symbol], start=start, end=end)
         meta = store.stocks()
@@ -241,7 +251,7 @@ def sync_status() -> dict:
 def quality() -> dict:
     from jianwei.data.sync import quality_report
 
-    store = _open_store()
+    store = _open_store(read_only=True)
     try:
         rep = quality_report(store)
     finally:

@@ -98,7 +98,7 @@ class SimBroker:
             return {"cash": self.cash, "market_value": 0.0, "nav": self.cash, "positions": []}
 
         symbols = [p["symbol"] for p in pos]
-        store = MarketStore()
+        store = MarketStore(read_only=True)
         try:
             panel = store.daily_panel(symbols=symbols)
         finally:

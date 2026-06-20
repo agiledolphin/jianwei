@@ -99,10 +99,16 @@ def _fetch_daily_tx(symbol: str, start: str, end: str) -> pd.DataFrame:
 
 def fetch_daily(symbol: str, start: str, end: str) -> pd.DataFrame:
     """单只股票前复权日线。start/end 形如 '20200101'。"""
+    global _kline_source
     if kline_source() == "em":
         from jianwei.data.eastmoney import fetch_kline
 
-        df = fetch_kline(symbol, start, end)
+        try:
+            df = fetch_kline(symbol, start, end)
+        except RuntimeError:
+            # 东财 WAF 在会话中途再次触发，永久切换腾讯
+            _kline_source = "tx"
+            df = _fetch_daily_tx(symbol, start, end)
     else:
         df = _fetch_daily_tx(symbol, start, end)
     if df.empty:

@@ -54,9 +54,10 @@ def board_of(symbol: str) -> str:
 
 
 class MarketStore:
-    def __init__(self, path: str | None = None):
-        self.con = duckdb.connect(str(path or market_db_path()))
-        self.con.execute(_SCHEMA)
+    def __init__(self, path: str | None = None, read_only: bool = False):
+        self.con = duckdb.connect(str(path or market_db_path()), read_only=read_only)
+        if not read_only:
+            self.con.execute(_SCHEMA)
 
     def close(self) -> None:
         self.con.close()
