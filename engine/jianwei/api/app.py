@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import os
 import threading
+from contextlib import asynccontextmanager
 
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -28,7 +29,20 @@ def _check_token(request: Request) -> None:
         raise HTTPException(status_code=401, detail="invalid token")
 
 
-app = FastAPI(title="Jianwei Engine", version=__version__, dependencies=[Depends(_check_token)])
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    from jianwei.scheduler import start_scheduler, stop_scheduler
+    start_scheduler()
+    yield
+    stop_scheduler()
+
+
+app = FastAPI(
+    title="Jianwei Engine",
+    version=__version__,
+    dependencies=[Depends(_check_token)],
+    lifespan=_lifespan,
+)
 app.add_middleware(  # 仅本机回环可达，来源校验交给 token
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
@@ -236,3 +250,80 @@ def quality() -> dict:
         return {"stocks": 0, "stale": 0, "rows": []}
     stale = int((rep["lag_days"] > 5).sum())
     return {"stocks": int(len(rep)), "stale": stale, "rows": _records(rep)}
+
+
+# -- 调度 -------------------------------------------------------------------
+
+
+@app.get("/schedule/status")
+def schedule_status() -> dict:
+    from jianwei.scheduler import status
+    return status()
+
+
+@app.post("/schedule/trigger")
+def schedule_trigger() -> dict:
+    from jianwei.scheduler import trigger_now
+    trigger_now()
+    return {"triggered": True}
+
+
+@app.get("/schedule/log")
+def schedule_log(limit: int = 20) -> list[dict]:
+    from jianwei.scheduler_log import SchedulerLog
+    sl = SchedulerLog()
+    try:
+        return sl.recent(limit=limit)
+    finally:
+        sl.close()
+
+
+# -- 模拟盘 -----------------------------------------------------------------
+
+
+@app.get("/sim/nav")
+def sim_nav() -> dict:
+    from jianwei.sim.broker import SimBroker
+    b = SimBroker()
+    try:
+        return _clean(b.nav())
+    finally:
+        b.close()
+
+
+@app.get("/sim/trades")
+def sim_trades(limit: int = 50) -> list[dict]:
+    from jianwei.sim.broker import SimBroker
+    b = SimBroker()
+    try:
+        return b.trades(limit=limit)
+    finally:
+        b.close()
+
+
+@app.post("/sim/execute")
+def sim_execute() -> dict:
+    """立即用最新选股结果撮合一次（用于手动测试）。"""
+    from jianwei.sim.broker import SimBroker
+    from jianwei.strategy.score import ScoreStrategy
+
+    panel, meta, _ = _load_panel()
+    picks = ScoreStrategy().select(panel)
+    picks["name"] = picks["symbol"].map(dict(zip(meta["symbol"], meta["name"])))
+
+    b = SimBroker()
+    try:
+        return b.execute_picks(picks)
+    finally:
+        b.close()
+
+
+@app.post("/sim/reset")
+def sim_reset() -> dict:
+    from jianwei.sim.broker import SimBroker
+    b = SimBroker()
+    try:
+        b.reset()
+        return {"reset": True}
+    finally:
+        b.close()

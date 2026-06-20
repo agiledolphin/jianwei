@@ -4,14 +4,16 @@ import Picks from "./pages/Picks";
 import Kline from "./pages/Kline";
 import Backtest from "./pages/Backtest";
 import Data from "./pages/Data";
+import Sim from "./pages/Sim";
 import "./App.css";
 
-type Page = "picks" | "kline" | "backtest" | "data";
+type Page = "picks" | "kline" | "backtest" | "sim" | "data";
 
 const NAV: { key: Page; label: string }[] = [
   { key: "picks", label: "选股" },
   { key: "kline", label: "行情" },
   { key: "backtest", label: "回测" },
+  { key: "sim", label: "模拟盘" },
   { key: "data", label: "数据" },
 ];
 
@@ -74,6 +76,14 @@ export default function App() {
         )}
         {page === "kline" && <Kline symbol={klineSymbol} onSymbolChange={setKlineSymbol} />}
         {page === "backtest" && <Backtest />}
+        {page === "sim" && (
+          <Sim
+            onOpenKline={(s) => {
+              setKlineSymbol(s);
+              setPage("kline");
+            }}
+          />
+        )}
         {page === "data" && <Data />}
       </main>
     </div>
