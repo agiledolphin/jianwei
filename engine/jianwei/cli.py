@@ -26,6 +26,11 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("quality", help="数据质量报告")
 
+    ev = sub.add_parser("evolve", help="Optuna 因子权重寻优 + champion/challenger 晋升")
+    ev.add_argument("--trials", type=int, default=50)
+    ev.add_argument("--train-years", type=float, default=3.0)
+    ev.add_argument("--val-years", type=float, default=1.0)
+
     sv = sub.add_parser("serve", help="启动本地 HTTP 服务（供桌面端调用）")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8765)
@@ -34,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     return {
         "sync": _sync, "select": _select, "backtest": _backtest,
-        "quality": _quality, "serve": _serve,
+        "quality": _quality, "evolve": _evolve_cmd, "serve": _serve,
     }[args.cmd](args)
 
 
@@ -102,6 +107,32 @@ def _backtest(args) -> int:
     finally:
         reg.close()
     print(f"\n已记录：strategy_id={sid} run_id={run_id}")
+    return 0
+
+
+def _evolve_cmd(args) -> int:
+    from jianwei.evolve.optimizer import EvolveConfig, evolve
+
+    cfg = EvolveConfig(
+        n_trials=args.trials,
+        train_years=args.train_years,
+        val_years=args.val_years,
+    )
+    print(f"开始进化：{cfg.n_trials} trials，训练 {cfg.train_years}y / 验证 {cfg.val_years}y")
+    result = evolve(cfg, log_fn=print)
+    if "error" in result:
+        print("错误:", result["error"])
+        return 1
+    print(f"\n{'已晋升新 champion ✓' if result['promoted'] else '未晋升（challenger 未超过 champion）'}")
+    print(f"训练期夏普: {result['train_sharpe']:.3f}")
+    vm = result.get("val_metrics", {})
+    if vm:
+        print(f"验证期年化: {vm.get('annual_return', 0):.2%}  超额: {vm.get('excess_annual_return', 0):.2%}  回撤: {vm.get('max_drawdown', 0):.2%}")
+    print("\n最优参数:")
+    for k, v in result["best_params"].items():
+        if k.startswith("w_"):
+            print(f"  {k[2:]:<20} {v:.3f}")
+    print(f"  top_n                {result['best_params']['top_n']}")
     return 0
 
 

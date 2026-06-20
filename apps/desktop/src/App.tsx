@@ -5,15 +5,17 @@ import Kline from "./pages/Kline";
 import Backtest from "./pages/Backtest";
 import Data from "./pages/Data";
 import Sim from "./pages/Sim";
+import Evolve from "./pages/Evolve";
 import "./App.css";
 
-type Page = "picks" | "kline" | "backtest" | "sim" | "data";
+type Page = "picks" | "kline" | "backtest" | "sim" | "evolve" | "data";
 
 const NAV: { key: Page; label: string }[] = [
   { key: "picks", label: "选股" },
   { key: "kline", label: "行情" },
   { key: "backtest", label: "回测" },
   { key: "sim", label: "模拟盘" },
+  { key: "evolve", label: "进化" },
   { key: "data", label: "数据" },
 ];
 
@@ -84,6 +86,7 @@ export default function App() {
             }}
           />
         )}
+        {page === "evolve" && <Evolve />}
         {page === "data" && <Data />}
       </main>
     </div>

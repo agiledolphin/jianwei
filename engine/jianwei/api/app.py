@@ -327,3 +327,76 @@ def sim_reset() -> dict:
         return {"reset": True}
     finally:
         b.close()
+
+
+# -- 策略进化 ----------------------------------------------------------------
+
+
+class _EvolveState:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.thread: threading.Thread | None = None
+        self.result: dict | None = None
+        self.error: str | None = None
+
+    @property
+    def running(self) -> bool:
+        return self.thread is not None and self.thread.is_alive()
+
+
+_evolve = _EvolveState()
+
+
+class EvolveReq(BaseModel):
+    n_trials: int = Field(default=50, ge=5, le=500)
+    train_years: float = Field(default=3.0, ge=1.0, le=10.0)
+    val_years: float = Field(default=1.0, ge=0.5, le=3.0)
+
+
+def _run_evolve(cfg_dict: dict) -> None:
+    from jianwei.evolve.optimizer import EvolveConfig, evolve
+    try:
+        cfg = EvolveConfig(**cfg_dict)
+        _evolve.result = evolve(cfg)
+    except Exception as e:
+        _evolve.error = str(e)
+
+
+@app.post("/evolve/start")
+def evolve_start(req: EvolveReq) -> dict:
+    with _evolve.lock:
+        if _evolve.running:
+            raise HTTPException(status_code=409, detail="进化已在运行中")
+        _evolve.result, _evolve.error = None, None
+        _evolve.thread = threading.Thread(
+            target=_run_evolve,
+            args=({"n_trials": req.n_trials, "train_years": req.train_years, "val_years": req.val_years},),
+            daemon=True,
+        )
+        _evolve.thread.start()
+    return {"started": True}
+
+
+@app.get("/evolve/status")
+def evolve_status() -> dict:
+    return {
+        "running": _evolve.running,
+        "result": _clean(_evolve.result),
+        "error": _evolve.error,
+    }
+
+
+@app.get("/evolve/champion")
+def evolve_champion() -> dict:
+    from jianwei.strategy.registry import Registry
+    reg = Registry()
+    try:
+        row = reg.con.execute(
+            "SELECT id, params, created_at FROM strategies WHERE name='score_evolved' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    finally:
+        reg.close()
+    if not row:
+        return {"champion": None}
+    import json
+    return {"champion": {"id": row[0], "params": json.loads(row[1]), "created_at": row[2]}}
