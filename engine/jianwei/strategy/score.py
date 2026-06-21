@@ -29,6 +29,7 @@ def make_panel(daily: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
 def zscore_cross_section(df: pd.DataFrame) -> pd.DataFrame:
     """逐日截面标准化，并截断到 ±3 抑制极端值。"""
+    df = df.replace([float("inf"), float("-inf")], pd.NA)  # inf/-inf 先置 NaN，避免均值/减法 warning
     mu = df.mean(axis=1)
     sd = df.std(axis=1).replace(0, pd.NA)
     return df.sub(mu, axis=0).div(sd, axis=0).clip(-3, 3)

@@ -51,7 +51,8 @@ def liquidity_20(panel: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """20 日平均成交额（对数）：流动性偏好，亦避免选出僵尸股。"""
     import numpy as np
 
-    return np.log(panel["amount"].rolling(20).mean())
+    avg = panel["amount"].rolling(20).mean()
+    return np.log(avg.where(avg > 0))  # 0/负值 → NaN，不参与排名；避免 log(0)=-inf
 
 
 def compute_all(panel: dict[str, pd.DataFrame], names: list[str]) -> dict[str, pd.DataFrame]:
