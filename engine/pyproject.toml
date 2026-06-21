@@ -1,6 +1,6 @@
 [project]
 name = "jianwei"
-version = "0.1.0"
+version = "0.2.0"
 description = "见微 Jianwei — A 股自动选股引擎"
 requires-python = ">=3.13,<3.14"
 dependencies = [

@@ -15,7 +15,7 @@
 | Vite | 8.0.16 | 前端构建 |
 | React | 19.2.7 | UI 框架 |
 | TypeScript | 6.0.3 | |
-| klinecharts | 10.0.0-beta3 | K 线图。10 为官方 latest 标签；若遇阻退回 9.x 稳定版 |
+| klinecharts | 9.8.12 | K 线图（稳定版，已验证可用） |
 | ECharts | 6.1.0 | 净值曲线、回测图表 |
 | Rust | 1.96.0（本机已装） | |
 
@@ -26,17 +26,17 @@
 | 依赖 | 版本 | 说明 |
 |---|---|---|
 | Python | 3.13（uv 管理） | 见下方说明 ① |
-| AkShare | 1.18.64 | A 股数据源（免费） |
-| pandas | 3.0.3 | |
-| DuckDB | 1.5.3 | 本地行情库（配合 Parquet） |
-| vectorbt | 1.0.0 | 可选：向量化批量计算加速（回测内核自研，见 4.1） |
+| AkShare | 1.18.64 | A 股辅助数据（股票列表、沪深300成分） |
+| Baostock | 0.9.2 | 主力日线数据源，有真实成交额/换手率，无 WAF |
+| pandas | 2.2+ | |
+| DuckDB | 1.5.3 | 本地行情库 |
 | Optuna | 4.9.0 | 策略参数进化 |
 | FastAPI | 0.136.3 + uvicorn 0.49.0 | 引擎本地 API |
 | pydantic | 2.13.4 | |
 | APScheduler | 3.11.2 | 引擎内定时调度（每日同步/信号生成） |
 | SQLite | 标准库 | 账户、流水、策略注册表等事务型数据 |
 
-> ① 本机 Python 为 3.14，但 vectorbt 依赖 numba，numba 对最新 CPython 的支持历来滞后，C 扩展轮子覆盖也以 3.13 最稳。引擎用 uv 锁定 3.13 独立环境，不影响系统 Python。这是「尽量最新」原则下唯一一处保守选择。
+> ① 本机 Python 为 3.14，但 C 扩展轮子覆盖以 3.13 最稳。引擎用 uv 锁定 3.13 独立环境。
 
 依赖管理：前端 npm + 引擎 uv（pyproject.toml + uv.lock），全部锁版本。
 
@@ -49,16 +49,16 @@
 │ Python 引擎 (FastAPI)：数据 / 因子 / 回测 / 进化 / │
 │                        调度 (APScheduler)       │
 │            ↕                                  │
-│ DuckDB + Parquet（行情/因子/回测） SQLite（账户/状态）│
+│ DuckDB（行情/因子/回测）  SQLite（账户/模拟盘/调度日志）│
 └──────────────────────────────────────────────┘
    Rust (Tauri 2.11)：纯壳 —— 窗口 + sidecar 托管
 ```
 
-职责边界（Rust 压为纯壳，业务集中在一种语言里）：
+职责边界（Rust 压为纯壳，业务集中在 Python）：
 
-- **Python 引擎**：全部量化逻辑 + 定时调度（APScheduler，引擎为常驻进程）。可脱离 UI 独立运行（CLI + pytest 驱动），先于 UI 开发验证。
-- **Rust 壳**：仅负责窗口和 Python sidecar 生命周期管理（启动 / 健康检查 / 崩溃重启），把引擎端口与 token 注入前端。不写业务逻辑，目标 ≤ 200 行。
-- **React 前端**：纯展示交互，拿到端口后直接 HTTP 访问引擎；长任务（回测/训练）通过 task_id 轮询或 SSE 接收进度。
+- **Python 引擎**：全部量化逻辑 + 定时调度（APScheduler，引擎为常驻进程）。可脱离 UI 独立运行（CLI + pytest 驱动）。
+- **Rust 壳**：仅负责窗口和 Python sidecar 生命周期管理（启动 / 健康检查 / 崩溃重启），把引擎端口与 token 注入前端。目标 ≤ 200 行。
+- **React 前端**：纯展示交互，拿到端口后直接 HTTP 访问引擎；长任务（回测/训练）轮询进度。
 
 ## 3. 目录结构
 
@@ -67,105 +67,119 @@ jianwei/
 ├── PLAN.md
 ├── apps/desktop/
 │   ├── src/                  # React + TS
-│   │   ├── pages/            # 选股、回测、模拟盘、策略管理
+│   │   ├── pages/            # 选股、回测、模拟盘、策略进化、行情、数据
 │   │   ├── components/       # K线（klinecharts）、图表（ECharts）
-│   │   └── api/              # 引擎 API 封装
-│   └── src-tauri/            # Rust：sidecar 托管、调度、命令
+│   │   └── api.ts            # 引擎 API 封装
+│   └── src-tauri/            # Rust：sidecar 托管、随机端口、token 鉴权
 ├── engine/
 │   ├── pyproject.toml        # uv 管理
 │   ├── jianwei/
-│   │   ├── data/             # AkShare 同步、交易日历、前复权、增量更新、质量校验
-│   │   ├── factors/          # 因子库：估值 / 质量 / 动量 / 资金流
-│   │   ├── strategy/         # 策略注册表（规则打分型起步），版本化
+│   │   ├── data/             # 三源切换（bs/tx/em）、DuckDB 存储、增量同步、质量校验
+│   │   ├── factors/          # 因子库：动量 / 反转 / 低波动 / 流动性
+│   │   ├── strategy/         # 多因子打分策略、SQLite 注册表
 │   │   ├── backtest/         # 自研日频调仓模拟器，A 股约束内置
-│   │   ├── sim/              # 模拟盘：撮合、账户、持仓、流水
+│   │   ├── sim/              # 模拟盘：SimBroker、账户、持仓、流水
 │   │   ├── evolve/           # Optuna 参数寻优、champion/challenger
-│   │   ├── report/           # 收益指标、基准对比、归因
-│   │   ├── api/              # FastAPI 路由、异步任务队列、APScheduler 调度
-│   │   └── cli.py            # 命令行入口（sync / select / backtest / report）
+│   │   ├── report/           # 收益指标、基准对比
+│   │   ├── scheduler.py      # APScheduler：每日 15:35 同步 + 选股 + 模拟调仓
+│   │   ├── scheduler_log.py  # 调度运行日志（SQLite）
+│   │   ├── api/              # FastAPI 路由（含 /sync /picks /backtest /sim/* /evolve/*）
+│   │   └── cli.py            # 命令行入口（serve / evolve）
 │   └── tests/
-├── data/                     # market.duckdb + app.sqlite + Parquet（gitignore）
+├── data/                     # market.duckdb + app.sqlite（gitignore）
 └── docs/
 ```
 
 ## 4. 核心设计要点
 
-### 4.1 A 股交易约束（回测与模拟盘共用一套规则）
+### 4.1 数据源
 
-T+1、涨跌停封板属于路径依赖约束，vectorbt 的纯向量化模型无法直接表达，因此回测内核采用**自研日频调仓模拟器**（约束作为一等公民，逐日撮合、可单测），vectorbt 留作批量指标计算的可选加速。以下约束为阶段一验收标准：
+三源切换，通过 `JIANWEI_DATA_SOURCE` 环境变量控制（默认 `bs`）：
+
+| 源 | 标识 | 说明 |
+|---|---|---|
+| Baostock | `bs`（默认） | 真实成交额/换手率，专为量化设计，无 WAF，免费注册 |
+| 腾讯财经 | `tx` | 无需登录，成交额为近似值（收盘价×成交量） |
+| 东方财富 | `em` | 字段最全，部分网络被 WAF 拦截，探测失败自动降级 tx |
+
+股票列表与沪深300成分通过 AkShare 获取（中证指数官网接口，300只当前成分）。
+
+### 4.2 A 股交易约束（回测与模拟盘共用一套规则）
 
 - **T+1**：当日买入次日才能卖出
-- **涨跌停**：触及涨停不可买入、跌停不可卖出（按 10% / ST 5% / 创业板与科创板 20% 区分）
+- **涨跌停**：触及涨停不可买入、跌停不可卖出（主板 10% / ST 5% / 创业板科创板 20% / 北交所 30%）
 - **费用**：佣金（万 2.5、最低 5 元）+ 卖出印花税 0.05% + 滑点
 - **停牌**：停牌日跳过，复牌后按规则处理
 
-### 4.2 选股策略：规则打分型起步
+### 4.3 选股策略：多因子打分
 
-多因子打分模型：每只股票按估值（PE/PB 分位）、质量（ROE、毛利率）、动量（区间收益、均线形态）、资金流等因子打分，加权合成总分，取 Top N。
+多因子截面 z-score 加权打分模型，取 Top N：
 
-- 因子权重与筛选阈值 = 策略参数，全部可被 Optuna 优化 → 构成「可进化」闭环
-- 策略实例 = 代码版本 + 参数 + 数据区间，落库版本化
-- **champion/challenger 晋升机制**：Optuna 寻优产生 challenger → 模拟盘试运行 → 样本外指标优于现役 champion 才晋升上线
-- ML 路线（Microsoft Qlib 滚动训练）作为阶段四增强，不在前期引入
+| 因子 | 权重 | 说明 |
+|---|---|---|
+| momentum_20 | 30% | 20 日动量 |
+| momentum_60 | 30% | 60 日动量 |
+| reversal_5 | 10% | 5 日反转（超跌反弹） |
+| low_volatility_60 | 20% | 60 日低波动 |
+| liquidity_20 | 10% | 20 日平均成交额对数 |
 
-### 4.2.1 存储分工与位置
+流动性硬过滤：20 日均成交额 ≥ 3000 万元。
 
-- **DuckDB + Parquet**：行情、因子、回测结果——「一次写入、反复分析」的列存场景
-- **SQLite**：模拟盘账户、持仓、交易流水、策略注册表、任务状态——「频繁小事务、可靠写入」场景（DuckDB 单写者模型不适合）
-
-数据目录（引擎统一经 `JIANWEI_DATA_DIR` 环境变量解析，未设置时取缺省值）：
-
-- 开发期缺省：`<项目根>/data/`（gitignore）
-- 分发期 macOS 缺省：`~/.jianwei/data/`
-
-### 4.3 收益评估
-
-- 指标：年化收益、最大回撤、夏普 / 卡玛、胜率、盈亏比、换手率
-- 基准对比：沪深 300 / 中证 500 超额收益曲线
-- 分年度、分行业归因
+因子权重与 Top N 全部可被 Optuna 优化，champion/challenger 机制控制策略晋升。
 
 ### 4.4 模拟盘
 
-- 每日收盘后生成信号 → 次日开盘价撮合（遵守 4.1 全部约束）
-- 账户净值、持仓、流水落库；UI 展示净值 vs 基准
+- APScheduler 每日 15:35 触发：同步行情 → 打分选股 → SimBroker 调仓
+- 账户净值、持仓、流水落 SQLite；UI 实时查询
 - 兼作策略晋升前的灰度验证环境
+
+### 4.5 收益评估
+
+- 指标：年化收益、最大回撤、夏普 / 卡玛、胜率、换手率、总手续费
+- 基准对比：沪深 300 超额收益
+
+### 4.6 存储分工
+
+- **DuckDB**：行情日线、指数日线、同步状态——列存，批量分析
+- **SQLite**：模拟盘账户/持仓/流水、策略注册表、调度日志——频繁小事务
+
+数据目录（`JIANWEI_DATA_DIR` 环境变量覆盖）：
+- 开发期缺省：`<项目根>/data/`
+- 分发期 macOS 缺省：`~/.jianwei/data/`
 
 ## 5. 实施阶段
 
-### 阶段一 · 引擎骨架（先行，CLI 可跑）
-1. Monorepo 脚手架：engine（uv + pyproject）+ apps/desktop（Tauri 2.11 + Vite 8 + React 19）
-2. 数据层：AkShare 同步 A 股日线 / 基本面入 DuckDB，增量更新，质量校验
-3. 规则型多因子选股器（首个内置策略）
-4. 自研约束回测内核 + 指标报告
-- **验收**：`jianwei sync && jianwei backtest` 命令行跑通，约束项有测试覆盖
+### ✅ 阶段一 · 引擎骨架（已完成）
+- Monorepo 脚手架：engine（uv + pyproject）+ apps/desktop（Tauri 2.11 + Vite 8 + React 19）
+- 数据层：AkShare 同步 A 股日线入 DuckDB，增量更新，质量校验
+- 规则型多因子选股器（动量/反转/低波动/流动性）
+- 自研约束回测内核 + 指标报告
 
-### 阶段二 · 桌面应用
-1. Rust 托管 Python sidecar（开发期 uv run，健康检查、崩溃重启）
-2. 页面：选股结果（含 K 线）、回测报告（净值曲线、指标卡）、数据同步状态
-3. 长任务异步：task_id + 进度事件
-- **验收**：macOS 上 `tauri dev` 完整走通「同步 → 选股 → 回测 → 看报告」
+### ✅ 阶段二 · 桌面应用（已完成）
+- Rust 托管 Python sidecar（uv run，随机端口 + token 鉴权，父进程监听防孤儿）
+- 6 页面：选股、K 线、回测、模拟盘、策略进化、数据同步
+- DuckDB 读写锁分离（读路由 read_only=True，写路由独占）
 
-### 阶段三 · 模拟盘与进化
-1. 模拟撮合、账户系统、每日调度（引擎内 APScheduler 触发）
-2. Optuna 参数寻优 + champion/challenger 晋升流程
-3. 模拟盘页面：净值曲线、持仓、交易流水、策略对比
-- **验收**：模拟盘可连续多日自动运行；challenger 晋升有完整记录
+### ✅ 阶段三 · 模拟盘与进化（已完成）
+- SimBroker：等权调仓，复用回测约束（T+1/涨跌停/手续费）
+- APScheduler：每日 15:35 自动同步 + 选股 + 模拟调仓，调度日志落库
+- Optuna 走前进化：训练期优化 Sharpe，验证期与 champion 对比决定晋升
+- 数据源重构：Baostock 为默认主源，三源统一出口，成交额/换手率字段真实可靠
 
-### 阶段四 · ML 与分发
-1. Qlib 滚动训练接入（ML 选股策略）
-2. PyInstaller 打包引擎为单文件二进制，注册 Tauri externalBin
-3. macOS 签名、公证、DMG 分发；其后 Windows / Linux
-- **验收**：无开发环境的 Mac 可直接安装运行
+### 🔲 阶段四 · 提升与分发
+1. **降低回撤**：市场趋势过滤（沪深300 60日均线以下空仓），把最大回撤从 -52% 压缩到合理范围
+2. **UI 图表**：回测 NAV 曲线（ECharts），K 线页均线/成交量图形渲染
+3. **打包分发**：PyInstaller 打包引擎为单文件二进制，Tauri externalBin；macOS 签名、公证、DMG
 
 ## 6. 风险与对策
 
 | 风险 | 对策 |
 |---|---|
-| AkShare 接口偶发失效（爬虫聚合） | 数据层抽象 DataSource 接口，BaoStock 兜底日线；重试 + 缺口检测 |
+| AkShare 接口偶发失效 | 数据源三层兜底（bs → tx → em），重试 + 缺口检测 |
+| Baostock 服务中断 | JIANWEI_DATA_SOURCE=tx 一键切换腾讯财经 |
 | Python sidecar 打包（C 扩展坑多） | 推迟到阶段四独立处理；开发期 uv run 即可 |
-| klinecharts 10 仍为 beta | 封装独立组件，API 不稳则退 9.x，影响面限制在单组件 |
-| pandas 3.0 较新，AkShare 兼容性待验证 | 阶段一首日实测；不兼容则 pandas 降 2.x（锁定记录在案） |
-| numba / vectorbt 对新 CPython 滞后 | 引擎锁 Python 3.13（已纳入选型） |
+| klinecharts 10 beta 不稳 | 已退回 9.x 稳定版（9.8.12） |
+| 回撤过大影响实用性 | 阶段四加市场趋势过滤 |
 
 ## 7. 合规说明
 
