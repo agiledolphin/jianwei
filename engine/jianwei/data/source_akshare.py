@@ -1,8 +1,8 @@
 """行情数据源封装：三源自动选择，统一列名、带重试。
 
 数据源优先级（可通过 JIANWEI_DATA_SOURCE 环境变量覆盖）：
-  tx  腾讯财经（默认）——无 WAF，稳定；缺成交额/换手率（以收盘价×成交量近似）
-  bs  Baostock ———有真实成交额/换手率，专为量化设计，无 WAF
+  bs  Baostock（默认）——有真实成交额/换手率，专为量化设计，无 WAF
+  tx  腾讯财经（备用）——无 WAF，稳定；缺成交额/换手率（以收盘价×成交量近似）
   em  东方财富（可选）——字段最全，但部分网络下被 WAF 拦截
 
 em 模式下每会话探测一次，探测失败或请求中途断连均自动切 tx。
@@ -44,7 +44,7 @@ def kline_source() -> str:
     """
     global _kline_source
     if _kline_source is None:
-        src = os.environ.get("JIANWEI_DATA_SOURCE", "tx").lower()
+        src = os.environ.get("JIANWEI_DATA_SOURCE", "bs").lower()
         if src == "em":
             from jianwei.data.eastmoney import fetch_kline
             try:
