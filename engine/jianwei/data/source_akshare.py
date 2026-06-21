@@ -176,28 +176,35 @@ def _bs_symbol(symbol: str) -> str:
     return f"sz.{symbol}"
 
 
+def _bs_to_df(rs, fields: list[str]) -> pd.DataFrame:
+    """baostock 0.9.x 与 pandas 2.x 不兼容（内部用了已删除的 df.append）。
+    手动迭代行，避开 rs.get_data()。"""
+    rows = []
+    while rs.next():
+        rows.append(rs.get_row_data())
+    return pd.DataFrame(rows, columns=fields) if rows else pd.DataFrame(columns=fields)
+
+
 def _fetch_daily_bs(symbol: str, start: str, end: str) -> pd.DataFrame:
     """Baostock 前复权日线——有真实成交额和换手率。"""
     import baostock as bs
 
     _bs_login()
-    start_date = pd.Timestamp(start).strftime("%Y-%m-%d")
-    end_date = pd.Timestamp(end).strftime("%Y-%m-%d")
-
+    fields = ["date", "open", "high", "low", "close", "volume", "amount", "turn", "pctChg"]
     rs = bs.query_history_k_data_plus(
         _bs_symbol(symbol),
-        "date,open,high,low,close,volume,amount,turn,pctChg",
-        start_date=start_date,
-        end_date=end_date,
+        ",".join(fields),
+        start_date=pd.Timestamp(start).strftime("%Y-%m-%d"),
+        end_date=pd.Timestamp(end).strftime("%Y-%m-%d"),
         frequency="d",
         adjustflag="2",  # 前复权
     )
     if rs.error_code != "0":
         return pd.DataFrame()
 
-    df = rs.get_data()
-    if df is None or df.empty:
-        return pd.DataFrame()
+    df = _bs_to_df(rs, fields)
+    if df.empty:
+        return df
 
     df["date"] = pd.to_datetime(df["date"])
     for col in ["open", "high", "low", "close", "amount", "pctChg", "turn"]:
@@ -215,18 +222,19 @@ def _fetch_index_bs(symbol: str, start: str, end: str) -> pd.DataFrame:
     import baostock as bs
 
     _bs_login()
+    fields = ["date", "close"]
     rs = bs.query_history_k_data_plus(
         f"sh.{symbol}",
-        "date,close",
+        ",".join(fields),
         start_date=pd.Timestamp(start).strftime("%Y-%m-%d"),
         end_date=pd.Timestamp(end).strftime("%Y-%m-%d"),
         frequency="d",
     )
     if rs.error_code != "0":
-        return pd.DataFrame(columns=["date", "close"])
-    df = rs.get_data()
-    if df is None or df.empty:
-        return pd.DataFrame(columns=["date", "close"])
+        return pd.DataFrame(columns=fields)
+    df = _bs_to_df(rs, fields)
+    if df.empty:
+        return df
     df["date"] = pd.to_datetime(df["date"])
     df["close"] = pd.to_numeric(df["close"], errors="coerce")
     return df[["date", "close"]].dropna()
